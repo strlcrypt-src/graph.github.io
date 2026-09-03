@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VisualGraph PRO - OSINT Link Analysis</title>
+    <!-- Vis.js Network CDN -->
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <!-- FontAwesome 6 for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-color: #0c1017;
+            --panel-bg: #161b22;
+            --panel-border: #30363d;
+            --accent-color: #58a6ff;
+            --accent-success: #238636;
+            --accent-danger: #da3633;
+            --text-color: #c9d1d9;
+            --text-muted: #8b949e;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            user-select: none;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        /* Blueprint Grid Background */
+        #network-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            background-size: 40px 40px;
+            background-image: 
+                linear-gradient(to right, rgba(48, 54, 61, 0.15) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(48, 54, 61, 0.15) 1px, transparent 1px);
+            z-index: 1;
+        }
+
+        /* UI Canvas overlay styling */
+        .ui-layer {
+            position: absolute;
+            z-index: 10;
+            pointer-events: none;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 15px;
+        }
+
+        .interactive {
+            pointer-events: auto;
+        }
+
+        /* Header Menu Controls */
+        .header-wrapper {
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .menu-toggle-btn {
+            align-self: center;
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            color: var(--text-color);
+            padding: 6px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            transition: all 0.2s ease;
+        }
+
+        .menu-toggle-btn:hover {
+            border-color: var(--accent-color);
+            background: #21262d;
+        }
+
+        .top-panel {
+            background: rgba(22, 27, 34, 0.95);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+            backdrop-filter: blur(8px);
+            transition: max-height 0.3s cubic-bezier(0, 1, 0, 1), opacity 0.2s ease, padding 0.3s ease;
+            max-height: 500px;
+            opacity: 1;
+            overflow: hidden;
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 15px;
+        }
+
+        .top-panel.collapsed {
+            max-height: 0;
+            opacity: 0;
+            padding: 0 15px;
+            border-color: transparent;
+        }
+
+        .panel-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .section-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            font-weight: 700;
+            border-bottom: 1px solid var(--panel-border);
+            padding-bottom: 4px;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        input, select {
+            background: #0d1117;
+            border: 1px solid var(--panel-border);
+            color: var(--text-color);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+            flex: 1;
+        }
+
+        input:focus, select:focus {
+            border-color: var(--accent-color);
+        }
+
+        .btn {
+            background: #21262d;
+            border: 1px solid var(--panel-border);
+            color: var(--text-color);
+            padding: 8px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 13px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        .btn:hover {
+            background: #30363d;
+            border-color: #8b949e;
+        }
+
+        .btn-primary {
+            background: var(--accent-success);
+            border-color: rgba(240,246,252,0.1);
+        }
+        .btn-primary:hover {
+            background: #2ea44f;
+            border-color: rgba(240,246,252,0.1);
+        }
+
+        .btn-danger {
+            background: #21262d;
+            border-color: var(--accent-danger);
+            color: #f85149;
+        }
+        .btn-danger:hover {
+            background: var(--accent-danger);
+            color: #fff;
+        }
+
+        .btn-active {
+            background: var(--accent-color) !important;
+            color: #0d1117 !important;
+            font-weight: bold;
+            border-color: var(--accent-color) !important;
+        }
+
+        /* Type selectors badge grid */
+        .type-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+        }
+
+        .type-badge {
+            background: #0d1117;
+            border: 1px solid var(--panel-border);
+            border-radius: 6px;
+            padding: 8px;
+            text-align: center;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .type-badge.selected {
+            border-color: var(--accent-color);
+            background: rgba(88, 166, 255, 0.1);
+        }
+
+        /* Color customizer */
+        .color-picker-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+        }
+        .color-picker-wrapper input[type="color"] {
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 1px solid var(--panel-border);
+            cursor: pointer;
+            background: transparent;
+            overflow: hidden;
+            flex: none;
+        }
+
+        /* Bottom Floating Bar Tool */
+        .bottom-bar {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            margin-top: auto;
+        }
+
+        .dock-panel {
+            background: rgba(22, 27, 34, 0.95);
+            border: 1px solid var(--panel-border);
+            padding: 10px 20px;
+            border-radius: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.7);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .dock-divider {
+            width: 1px;
+            height: 24px;
+            background: var(--panel-border);
+            margin: 0 4px;
+        }
+
+        /* Sidebar/Inspector Panel */
+        .inspector-panel {
+            position: absolute;
+            right: 15px;
+            top: 80px;
+            width: 300px;
+            background: rgba(22, 27, 34, 0.95);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+            backdrop-filter: blur(8px);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            transform: translateX(340px);
+            transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 11;
+        }
+
+        .inspector-panel.active {
+            transform: translateX(0);
+        }
+
+        .inspector-close {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            cursor: pointer;
+            color: var(--text-muted);
+        }
+        .inspector-close:hover {
+            color: var(--text-color);
+        }
+
+        /* Tooltips or search overlay */
+        .search-container {
+            position: absolute;
+            left: 15px;
+            top: 80px;
+            width: 260px;
+            z-index: 11;
+        }
+
+        /* Hidden File Input */
+        #import-file {
+            display: none;
+        }
+
+        /* Stats display */
+        .stats-badge {
+            font-size: 11px;
+            color: var(--text-muted);
+            background: #0d1117;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid var(--panel-border);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Network Drawing Target Canvas -->
+    <div id="network-container"></div>
+
+    <!-- Interface Controls Wrapper Layer -->
+    <div class="ui-layer">
+        
+        <!-- Top dynamic menu -->
+        <div class="header-wrapper interactive">
+            <button class="menu-toggle-btn" id="toggle-menu-btn">
+                <i class="fa-solid fa-gear"></i>
+                <span>Управление и Панель объектов</span>
+                <i class="fa-solid fa-chevron-up" id="menu-chevron"></i>
+            </button>
+            
+            <div class="top-panel" id="main-top-panel">
+                <!-- Left side: Creation Tool -->
+                <div class="panel-section">
+                    <div class="section-title">Создание новой сущности</div>
+                    <div class="form-row">
+                        <input type="text" id="node-label" placeholder="Имя, телефон, никнейм, IP...">
+                        <button class="btn btn-primary" id="add-node-btn">
+                            <i class="fa-solid fa-plus"></i> Добавить
+                        </button>
+                    </div>
+                    
+                    <div class="type-grid" id="type-selector-grid">
+                        <div class="type-badge selected" data-type="person" data-icon="fa-user" data-color="#58a6ff">
+                            <i class="fa-solid fa-user fa-lg" style="color: #58a6ff;"></i>
+                            <span>Персона</span>
+                        </div>
+                        <div class="type-badge" data-type="email" data-icon="fa-envelope" data-color="#ff7b72">
+                            <i class="fa-solid fa-envelope fa-lg" style="color: #ff7b72;"></i>
+                            <span>Email</span>
+                        </div>
+                        <div class="type-badge" data-type="phone" data-icon="fa-phone" data-color="#56d364">
+                            <i class="fa-solid fa-phone fa-lg" style="color: #56d364;"></i>
+                            <span>Телефон</span>
+                        </div>
+                        <div class="type-badge" data-type="network" data-icon="fa-globe" data-color="#d2a8ff">
+                            <i class="fa-solid fa-globe fa-lg" style="color: #d2a8ff;"></i>
+                            <span>Домен / IP</span>
+                        </div>
+                    </div>
+
+                    <div class="color-picker-wrapper">
+                        <span>Кастомный цвет значка:</span>
+                        <input type="color" id="custom-node-color" value="#58a6ff">
+                        <span style="font-size:11px; color:var(--text-muted)">(Перезапишет стандартный цвет типа)</span>
+                    </div>
+                </div>
+
+                <!-- Right side: Global Actions & Img export -->
+                <div class="panel-section">
+                    <div class="section-title">Экспорт / Импорт данных</div>
+                    <div class="form-row">
+                        <button class="btn" id="export-json-btn" style="flex: 1;">
+                            <i class="fa-solid fa-file-code"></i> JSON Схема
+                        </button>
+                        <button class="btn" id="import-trigger-btn" style="flex: 1;">
+                            <i class="fa-solid fa-file-import"></i> Импорт JSON
+                        </button>
+                        <input type="file" id="import-file" accept=".json">
+                    </div>
+                    <button class="btn btn-primary" id="export-png-btn" style="width: 100%;">
+                        <i class="fa-solid fa-image"></i> Сохранить граф в Фото (PNG)
+                    </button>
+                    <div style="margin-top: auto; display: flex; gap: 5px; justify-content: flex-end;">
+                        <div class="stats-badge" id="stats-nodes">Узлов: 0</div>
+                        <div class="stats-badge" id="stats-edges">Связей: 0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Left Top Search Overlay -->
+        <div class="search-container interactive">
+            <input type="text" id="search-input" placeholder="🔍 Живой поиск по названию...">
+        </div>
+
+        <!-- Right Side Object/Edge Inspector Panel -->
+        <div class="inspector-panel interactive" id="inspector">
+            <i class="fa-solid fa-xmark inspector-close" id="inspector-close-btn"></i>
+            <div class="section-title" id="inspector-title">Свойства элемента</div>
+            
+            <!-- Contextual fields inside inspector -->
+            <div id="inspector-node-fields" style="display: flex; flex-direction: column; gap: 10px;">
+                <label style="font-size:12px; color:var(--text-muted)">Текст / Подпись:</label>
+                <input type="text" id="inspect-label">
+                
+                <label style="font-size:12px; color:var(--text-muted)">Размер текста:</label>
+                <input type="number" id="inspect-size" min="10" max="40" value="14">
+
+                <button class="btn btn-danger" id="delete-element-btn" style="margin-top: 10px;">
+                    <i class="fa-solid fa-trash"></i> Удалить выбранное
+                </button>
+            </div>
+
+            <div id="inspector-edge-fields" style="display: none; flex-direction: column; gap: 10px;">
+                <label style="font-size:12px; color:var(--text-muted)">Текст на стрелке (Связь):</label>
+                <input type="text" id="inspect-edge-label" placeholder="Напр: Владелец, Брат, IP...">
+                
+                <label style="font-size:12px; color:var(--text-muted)">Стиль линии:</label>
+                <select id="inspect-edge-style">
+                    <option value="solid">Сплошная линия</option>
+                    <option value="dashed">Пунктир (Dashed)</option>
+                </select>
+
+                <button class="btn btn-danger" id="delete-edge-btn" style="margin-top: 10px;">
+                    <i class="fa-solid fa-trash"></i> Удалить связь
+                </button>
+            </div>
+        </div>
+
+        <!-- Bottom Smart Toolbar Dock -->
+        <div class="bottom-bar">
+            <div class="dock-panel interactive">
+                <button class="btn" id="connect-mode-btn" title="Включить режим прокладывания стрелочек">
+                    <i class="fa-solid fa-link"></i> 🔗 Режим соединения
+                </button>
+                <div class="dock-divider"></div>
+                <button class="btn" id="clear-all-btn" title="Полностью очистить рабочую область" style="color: #ff7b72;">
+                    <i class="fa-solid fa-dumpster"></i> Очистить всё
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Data Structures for Vis.js
+        let nodesArray = [
+            { id: 1, label: 'Иван Иванов', shape: 'icon', icon: { face: '"Font Awesome 6 Free"', code: '', size: 40, color: '#58a6ff' }, entityType: 'person', customColor: '#58a6ff' },
+            { id: 2, label: 'ivan@example.com', shape: 'icon', icon: { face: '"Font Awesome 6 Free"', code: '', size: 40, color: '#ff7b72' }, entityType: 'email', customColor: '#ff7b72' },
+            { id: 3, label: '+7 (999) 123-45-67', shape: 'icon', icon: { face: '"Font Awesome 6 Free"', code: '', size: 40, color: '#56d364' }, entityType: 'phone', customColor: '#56d364' }
+        ];
+
+        let edgesArray = [
+            { id: 'e1', from: 1, to: 2, label: 'Почта', color: { color: '#8b949e', inherit: false }, arrows: 'to', font: { color: '#c9d1d9', size: 11, strokeWidth: 0 }, dashes: false },
+            { id: 'e2', from: 1, to: 3, label: 'Телефон', color: { color: '#8b949e', inherit: false }, arrows: 'to', font: { color: '#c9d1d9', size: 11, strokeWidth: 0 }, dashes: false }
+        ];
+
+        let nodes = new vis.DataSet(nodesArray);
+        let edges = new vis.DataSet(edgesArray);
+
+        const container = document.getElementById('network-container');
+        const data = { nodes: nodes, edges: edges };
+
+        // Configuration Options for visually polished dark networks
+        const options = {
+            nodes: {
+                font: {
+                    color: '#c9d1d9',
+                    size: 14,
+                    face: 'sans-serif'
+                }
+            },
+            edges: {
+                width: 2,
+                color: {
+                    color: '#484f58',
+                    highlight: '#58a6ff',
+                    hover: '#58a6ff'
+                },
+                font: {
+                    align: 'top',
+                    background: 'none'
+                },
+                smooth: {
+                    type: 'quadratic',
+                    roundness: 0.2
+                }
+            },
+            interaction: {
+                hover: true,
+                multiselect: false,
+                navigationButtons: false,
+                keyboard: true
+            },
+            physics: {
+                enabled: true,
+                barnesHut: {
+                    gravitationalConstant: -2000,
+                    centralGravity: 0.3,
+                    springLength: 95,
+                    springConstant: 0.04
+                },
+                stabilization: { iterations: 150 }
+            }
+        };
+
+        // Initialize Network
+        let network = new vis.Network(container, data, options);
+
+        // State variables
+        let isConnectMode = false;
+        let connectionSourceNode = null;
+        let selectedEntityInfo = null; // Stores currently opened item in inspector
+
+        // UI Selectors
+        const menuTopPanel = document.getElementById('main-top-panel');
+        const toggleMenuBtn = document.getElementById('toggle-menu-btn');
+        const menuChevron = document.getElementById('menu-chevron');
+        const connectModeBtn = document.getElementById('connect-mode-btn');
+        const inspectorPanel = document.getElementById('inspector');
+
+        // Toggle Top Header Expand/Collapse Menu
+        toggleMenuBtn.addEventListener('click', () => {
+            const isCollapsed = menuTopPanel.classList.toggle('collapsed');
+            menuChevron.className = isCollapsed ? "fa-solid fa-chevron-down" : "fa-solid fa-chevron-up";
+        });
+
+        // Type selection mechanism for nodes
+        let activeNodeType = 'person';
+        let activeNodeIconCode = ''; // fa-user
+        let activeNodeColor = '#58a6ff';
+
+        const typeBadges = document.querySelectorAll('.type-badge');
+        typeBadges.forEach(badge => {
+            badge.addEventListener('click', () => {
+                typeBadges.forEach(b => b.classList.remove('selected'));
+                badge.classList.add('selected');
+                
+                activeNodeType = badge.getAttribute('data-type');
+                activeNodeColor = badge.getAttribute('data-color');
+                
+                // Map icons mapping code from FontAwesome
+                const iconAttr = badge.getAttribute('data-icon');
+                if(iconAttr === 'fa-user') activeNodeIconCode = '';
+                else if(iconAttr === 'fa-envelope') activeNodeIconCode = '';
+                else if(iconAttr === 'fa-phone') activeNodeIconCode = '';
+                else if(iconAttr === 'fa-globe') activeNodeIconCode = '';
+
+                document.getElementById('custom-node-color').value = activeNodeColor;
+            });
+        });
+
+        // Dynamic updates for customized picked colors
+        document.getElementById('custom-node-color').addEventListener('input', (e) => {
+            activeNodeColor = e.target.value;
+        });
+
+        // Counter helper for safe auto incrementing IDs
+        function generateUniqueId() {
+            return Math.floor(Math.random() * 1000000) + Date.now();
+        }
+
+        // Add node handler action
+        document.getElementById('add-node-btn').addEventListener('click', createNodeFromInputs);
+        document.getElementById('node-label').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') createNodeFromInputs();
+        });
+
+        function createNodeFromInputs() {
+            const labelInput = document.getElementById('node-label');
+            const labelText = labelInput.value.trim();
+            if (!labelText) return;
+
+            const newId = generateUniqueId();
+            nodes.add({
+                id: newId,
+                label: labelText,
+                shape: 'icon',
+                icon: {
+                    face: '"Font Awesome 6 Free"',
+                    code: activeNodeIconCode,
+                    size: 40,
+                    color: activeNodeColor
+                },
+                entityType: activeNodeType,
+                customColor: activeNodeColor
+            });
+
+            labelInput.value = '';
+            updateStatsCounter();
+        }
+
+        // Toolbar: Connect Mode Logic Toggle Switching
+        connectModeBtn.addEventListener('click', () => {
+            isConnectMode = !isConnectMode;
+            if (isConnectMode) {
+                connectModeBtn.classList.add('btn-active');
+                network.disableEditMode();
+                connectionSourceNode = null;
+            } else {
+                connectModeBtn.classList.remove('btn-active');
+                connectionSourceNode = null;
+            }
+        });
+
+        // Live Network Event Clicks Handling
+        network.on("click", function (params) {
+            // Inspector closure fallback trigger
+            if (params.nodes.length === 0 && params.edges.length === 0) {
+                closeInspector();
+                if(isConnectMode) connectionSourceNode = null;
+                return;
+            }
+
+            // Connection Mode Active logic sequencing
+            if (isConnectMode && params.nodes.length > 0) {
+                const clickedNodeId = params.nodes[0];
+                
+                if (connectionSourceNode === null) {
+                    // First node selected
+                    connectionSourceNode = clickedNodeId;
+                    // Temporary visual highlight indicator using Vis API safely could go here
+                } else {
+                    // Target node selected - finalize connection edge linking link array map
+                    if (connectionSourceNode !== clickedNodeId) {
+                        edges.add({
+                            id: 'e_' + generateUniqueId(),
+                            from: connectionSourceNode,
+                            to: clickedNodeId,
+                            label: 'Связь',
+                            color: { color: '#8b949e', inherit: false },
+                            arrows: 'to',
+                            font: { color: '#c9d1d9', size: 11, strokeWidth: 0 },
+                            dashes: false
+                        });
+                        updateStatsCounter();
+                    }
+                    // Reset single cycle action link trigger state unless continuous requested
+                    connectionSourceNode = null;
+                }
+                return;
+            }
+
+            // Normal Mode Inspector triggers
+            if (!isConnectMode) {
+                if (params.nodes.length > 0) {
+                    openInspectorForNode(params.nodes[0]);
+                } else if (params.edges.length > 0) {
+                    openInspectorForEdge(params.edges[0]);
+                }
+            }
+        });
+
+        // Inspector logic triggers
+        function openInspectorForNode(nodeId) {
+            const item = nodes.get(nodeId);
+            selectedEntityInfo = { type: 'node', id: nodeId };
+            
+            document.getElementById('inspector-title').innerText = "Свойства объекта";
+            document.getElementById('inspector-node-fields').style.display = "flex";
+            document.getElementById('inspector-edge-fields').style.display = "none";
+            
+            document.getElementById('inspect-label').value = item.label || '';
+            document.getElementById('inspect-size').value = (item.font && item.font.size) ? item.font.size : 14;
+            
+            inspectorPanel.classList.add('active');
+        }
+
+        function openInspectorForEdge(edgeId) {
+            const edgeItem = edges.get(edgeId);
+            selectedEntityInfo = { type: 'edge', id: edgeId };
+            
+            document.getElementById('inspector-title').innerText = "Параметры связи";
+            document.getElementById('inspector-node-fields').style.display = "none";
+            document.getElementById('inspector-edge-fields').style.display = "flex";
+            
+            document.getElementById('inspect-edge-label').value = edgeItem.label || '';
+            document.getElementById('inspect-edge-style').value = edgeItem.dashes ? 'dashed' : 'solid';
+            
+            inspectorPanel.classList.add('active');
+        }
+
+        function closeInspector() {
+            inspectorPanel.classList.remove('active');
+            selectedEntityInfo = null;
+        }
+
+        document.getElementById('inspector-close-btn').addEventListener('click', closeInspector);
+
+        // Saved Inspector Edits Mutating Fields Realtime OnChange Listeners
+        document.getElementById('inspect-label').addEventListener('input', (e) => {
+            if (selectedEntityInfo && selectedEntityInfo.type === 'node') {
+                nodes.update({ id: selectedEntityInfo.id, label: e.target.value });
+            }
+        });
+
+        document.getElementById('inspect-size').addEventListener('input', (e) => {
+            if (selectedEntityInfo && selectedEntityInfo.type === 'node') {
+                let sizeVal = parseInt(e.target.value) || 14;
+                nodes.update({ id: selectedEntityInfo.id, font: { size: sizeVal } });
+            }
+        });
+
+        document.getElementById('inspect-edge-label').addEventListener('input', (e) => {
+            if (selectedEntityInfo && selectedEntityInfo.type === 'edge') {
+                edges.update({ id: selectedEntityInfo.id, label: e.target.value });
+            }
+        });
+
+        document.getElementById('inspect-edge-style').addEventListener('change', (e) => {
+            if (selectedEntityInfo && selectedEntityInfo.type === 'edge') {
+                const isDashed = e.target.value === 'dashed';
+                edges.update({ id: selectedEntityInfo.id, dashes: isDashed });
+            }
+        });
+
+        // Delete handlers from inside individual custom nodes
+        document.getElementById('delete-element-btn').addEventListener('click', () => {
+            if (selectedEntityInfo && selectedEntityInfo.type === 'node') {
+                nodes.remove({ id: selectedEntityInfo.id });
+                closeInspector();
+                updateStatsCounter();
+            }
+        });
+
+        document.getElementById('delete-edge-btn').addEventListener('click', () => {
+            if (selectedEntityInfo && selectedEntityInfo.type === 'edge') {
+                edges.remove({ id: selectedEntityInfo.id });
+                closeInspector();
+                updateStatsCounter();
+            }
+        });
+
+        // Keyboard hotkeys tracking deleting actions securely
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                // Prevent capturing if user focused typing safely in structured text input elements
+                if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT') {
+                    return; 
+                }
+                const selectedNodes = network.getSelectedNodes();
+                const selectedEdges = network.getSelectedEdges();
+                
+                if(selectedNodes.length > 0) {
+                    nodes.remove({ id: selectedNodes[0] });
+                    closeInspector();
+                    updateStatsCounter();
+                } else if(selectedEdges.length > 0) {
+                    edges.remove({ id: selectedEdges[0] });
+                    closeInspector();
+                    updateStatsCounter();
+                }
+            }
+        });
+
+        // Clear All Workspace Canvas Action Button
+        document.getElementById('clear-all-btn').addEventListener('click', () => {
+            if (confirm("Вы уверены, что хотите полностью стереть текущий граф?")) {
+                nodes.clear();
+                edges.clear();
+                closeInspector();
+                updateStatsCounter();
+            }
+        });
+
+        // Search engine filter match index tracking system
+        document.getElementById('search-input').addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            if (!query) {
+                // Reset nodes opacity standard focus look
+                const allNodes = nodes.get();
+                allNodes.forEach(n => {
+                    if(n.icon) {
+                        n.icon.color = n.customColor || '#58a6ff';
+                        nodes.update(n);
+                    }
+                });
+                return;
+            }
+
+            const allNodes = nodes.get();
+            allNodes.forEach(n => {
+                if (n.label && n.icon) {
+                    const match = n.label.toLowerCase().includes(query);
+                    // Fadeout if not matching search term queried strings query parameters
+                    n.icon.color = match ? (n.customColor || '#58a6ff') : '#21262d';
+                    nodes.update(n);
+                }
+            });
+        });
+
+        // STATS REALTIME UI UPDATES HELPER
+        function updateStatsCounter() {
+            document.getElementById('stats-nodes').innerText = "Узлов: " + nodes.length;
+            document.getElementById('stats-edges').innerText = "Связей: " + edges.length;
+        }
+
+        // EXPORT JSON DATA BACKUPS
+        document.getElementById('export-json-btn').addEventListener('click', () => {
+            const dataToExport = {
+                nodes: nodes.get(),
+                edges: edges.get()
+            };
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(dataToExport, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", "visual_graph_export.json");
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        });
+
+        // IMPORT JSON CONFIG FILES MECHANISM
+        const importTriggerBtn = document.getElementById('import-trigger-btn');
+        const fileInput = document.getElementById('import-file');
+
+        importTriggerBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                try {
+                    const parsedData = JSON.parse(evt.target.result);
+                    if (parsedData.nodes && parsedData.edges) {
+                        nodes.clear();
+                        edges.clear();
+                        nodes.add(parsedData.nodes);
+                        edges.add(parsedData.edges);
+                        updateStatsCounter();
+                        network.fit(); // Autoscale window view boundary box limits
+                        alert("Граф успешно импортирован из сохраненной копии!");
+                    } else {
+                        alert("Ошибка формата: Файл должен содержать массивы узлов и связей.");
+                    }
+                } catch(err) {
+                    alert("Ошибка при чтении файла JSON: " + err.message);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // HIGH RES PHOTO PNG FULL EXPORT CAMERA SNAPPING
+        document.getElementById('export-png-btn').addEventListener('click', () => {
+            // Force redraw cycle on network to clean dynamic state rendering bugs inside canvas
+            network.redraw();
+            
+            // Read direct rendering buffer frames from inside target raw canvas inside vis network instances wrappers
+            const rawCanvas = container.getElementsByTagName('canvas')[0];
+            if (!rawCanvas) {
+                alert("Ошибка генерации изображения. Холст не найден.");
+                return;
+            }
+
+            // Create secondary offscreen render context to cleanly superimpose background grid design structures safely without breaking vis engine internals
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = rawCanvas.width;
+            exportCanvas.height = rawCanvas.height;
+            const ctx = exportCanvas.getContext('2d');
+
+            // Fill gorgeous background layout scheme before slapping the graphical entities on top cleanly
+            ctx.fillStyle = '#0c1017';
+            ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+            // Redraw gridlines accurately mapped matching the main body frame css styling guidelines rule properties
+            ctx.strokeStyle = 'rgba(48, 54, 61, 0.25)';
+            ctx.lineWidth = 1;
+            const gridSize = 40;
+            for (let x = 0; x < exportCanvas.width; x += gridSize) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, exportCanvas.height); ctx.stroke();
+            }
+            for (let y = 0; y < exportCanvas.height; y += gridSize) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(exportCanvas.width, y); ctx.stroke();
+            }
+
+            // Draw original vis elements overlay
+            ctx.drawImage(rawCanvas, 0, 0);
+
+            // Convert complete composite stream buffers safely download as raw system data stream asset pipelines file
+            const dataUrl = exportCanvas.toDataURL("image/png");
+            const imageDownloadAnchor = document.createElement('a');
+            imageDownloadAnchor.href = dataUrl;
+            imageDownloadAnchor.download = "osint_graph_screenshot.png";
+            document.body.appendChild(imageDownloadAnchor);
+            imageDownloadAnchor.click();
+            imageDownloadAnchor.remove();
+        });
+
+        // Prime initial count calculation triggers setup trackers on load
+        updateStatsCounter();
+    </script>
+</body>
+</html>
